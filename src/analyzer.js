@@ -42,6 +42,9 @@ function analyze(input) {
       ...checks.checkUnpinnedActions(workflow),
       ...checks.checkDangerousTriggers(workflow),
       ...checks.checkPermissions(workflow),
+      ...checks.checkSecretExfil(workflow),
+      ...checks.checkCachePoisoning(workflow),
+      ...checks.checkPersistCredentials(workflow),
     ];
     findings.sort((a, b) => b.score - a.score);
     const score = Math.min(100, findings.reduce((s, x) => s + x.score, 0));

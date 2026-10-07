@@ -139,6 +139,74 @@ function checkPermissions(workflow) {
   return out;
 }
 
+function checkSecretExfil(workflow) {
+  const out = [];
+  const seen = new Set(); // one of each, don't spam per step
+  for (const { jobId, step, index } of eachStep(workflow)) {
+    const script = step.run;
+    if (typeof script !== "string" || !script.includes("secrets.")) continue;
+    const where = `job ${jobId}, step ${index + 1}`;
+    if (!seen.has("log") && /echo\s+[^|\n]*\$\{\{\s*secrets\./.test(script)) {
+      seen.add("log");
+      out.push({
+        code: "SECRET_IN_LOG",
+        score: 25,
+        detail: `secret interpolated into echo output (${where}) — ends up in plain-text logs`,
+      });
+    }
+    if (!seen.has("net") && /curl[\s\S]*?\$\{\{\s*secrets\./.test(script)) {
+      seen.add("net");
+      out.push({
+        code: "SECRET_TO_NETWORK",
+        score: 30,
+        detail: `secret passed to curl (${where}) — verify the destination is supposed to have it`,
+      });
+    }
+  }
+  return out;
+}
+
+function checkCachePoisoning(workflow) {
+  // actions/cache keyed on attacker-controlled data + PR trigger = poisoned cache for main
+  const out = [];
+  const untrusted = triggersOf(workflow).some((t) => t.startsWith("pull_request"));
+  if (!untrusted) return out;
+  for (const { jobId, step, index } of eachStep(workflow)) {
+    const uses = step.uses || "";
+    if (!uses.startsWith("actions/cache")) continue;
+    const key = JSON.stringify(step.with || {});
+    if (DANGEROUS_CONTEXTS.some((c) => key.includes(c)) || key.includes("github.head_ref")) {
+      out.push({
+        code: "CACHE_POISONING",
+        score: 30,
+        detail: `cache key includes attacker-controlled data (job ${jobId}, step ${index + 1}) — a PR author can poison the cache for main-branch builds`,
+      });
+    }
+  }
+  return out;
+}
+
+function checkPersistCredentials(workflow) {
+  // checkout keeps the token in git config by default; untrusted code running after it can steal it
+  const out = [];
+  const untrusted = triggersOf(workflow).some((t) => t === "pull_request" || t === "pull_request_target");
+  if (!untrusted) return out;
+  const runsCode = eachStep(workflow).some(({ step }) => typeof step.run === "string");
+  if (!runsCode) return out;
+  for (const { jobId, step, index } of eachStep(workflow)) {
+    if (typeof step.uses !== "string" || !step.uses.startsWith("actions/checkout")) continue;
+    const withBlock = step.with || {};
+    if (withBlock["persist-credentials"] === false || withBlock["persist-credentials"] === "false") continue;
+    out.push({
+      code: "PERSIST_CREDENTIALS",
+      score: 20,
+      detail: `actions/checkout keeps credentials persisted (job ${jobId}, step ${index + 1}) while PR code runs — token theft vector, set persist-credentials: false`,
+    });
+    break; // one is enough, don't nag per checkout
+  }
+  return out;
+}
+
 function bandFor(score) {
   if (score >= 70) return "CRITICAL";
   if (score >= 45) return "HIGH";
@@ -151,6 +219,9 @@ module.exports = {
   checkUnpinnedActions,
   checkDangerousTriggers,
   checkPermissions,
+  checkSecretExfil,
+  checkCachePoisoning,
+  checkPersistCredentials,
   triggersOf,
   eachStep,
   bandFor,

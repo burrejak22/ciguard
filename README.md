@@ -74,6 +74,12 @@ ci.yml
 - **Dangerous triggers** — `pull_request_target` combined with checking out
   and running PR code (the pwn-request pattern).
 - **Permissions** — `write-all` at the workflow or job level.
+- **Secret exfiltration** — secrets echoed into logs or shipped to external
+  URLs via curl.
+- **Cache poisoning** — `actions/cache` keys built from attacker-controlled
+  data on PR triggers.
+- **Credential persistence** — `actions/checkout` keeping the token around
+  while untrusted PR code runs.
 
 ## Scoring
 
