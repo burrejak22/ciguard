@@ -1,0 +1,26 @@
+# publishes to npm automatically when you push a version tag (v0.1.0, v0.2.0, ...)
+# uses npm trusted publishing (OIDC) — no tokens, no 2FA codes needed.
+# one-time setup: link this repo as a trusted publisher on npmjs.com (see README).
+
+name: publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write # needed for npm's OIDC trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # npm 11.5.1+ required for OIDC trusted publishing
+          registry-url: https://registry.npmjs.org
+      - run: npm ci 2>/dev/null || npm install
+      - run: npm test
+      - run: npm publish --provenance --access public
